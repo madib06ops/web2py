@@ -1050,6 +1050,52 @@ class TestAuth(unittest.TestCase):
     # TODO: def test_login(self):
     # TODO: def test_logout(self):
 
+    def _set_login_vars(self, **kw):
+        self.request._get_vars = Storage()
+        self.request._post_vars = Storage(**kw)
+        self.request._vars = Storage(**kw)
+
+    def _two_factor_login(self, submitted_code):
+        # Drive Auth.login() through the two-factor challenge from a clean
+        # state and report whether the submitted code logged the user in.
+        self.auth.logout_bare()
+        self.auth._reset_two_factor_auth(self.session)
+        self.session["_formkey[login]"] = []
+        self.request.env.request_method = "POST"
+        self._set_login_vars()
+        self.auth.login()
+        key = self.session["_formkey[login]"][-1]
+        self._set_login_vars(
+            _formkey=key,
+            _formname="login",
+            username="bart",
+            password="bart_password",
+        )
+        self.auth.login()
+        key = self.session["_formkey[login]"][-1]
+        self._set_login_vars(
+            _formkey=key, _formname="login", authentication_code=submitted_code
+        )
+        try:
+            self.auth.login()
+        except HTTP:
+            pass  # successful login redirects
+        return self.auth.is_logged_in()
+
+    def test_two_factor_none_code_does_not_bypass(self):
+        # A two_factor_onvalidation callback that returns None on a wrong code
+        # (the pattern documented in Auth.login) left session.auth_two_factor
+        # as None; str(None) == "None" made the literal "None" pass the check.
+        self.auth.settings.auth_two_factor_enabled = True
+        self.auth.settings.two_factor_methods = [lambda user, code: None]
+        self.auth.settings.two_factor_onvalidation = [
+            lambda user, otp: "123456" if otp == "123456" else None
+        ]
+        self.assertFalse(self._two_factor_login("None"))
+        self.assertFalse(self._two_factor_login("000000"))
+        self.assertTrue(self._two_factor_login("123456"))
+        self.auth.logout_bare()
+
     def test_logout_bare(self):
         self.auth.login_user(
             self.db(self.db.auth_user.username == "bart").select().first()

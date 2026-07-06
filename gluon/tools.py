@@ -3338,7 +3338,15 @@ class Auth(AuthAPI):
                         else:
                             break
 
-                if form.vars["authentication_code"] == str(session.auth_two_factor):
+                # A two_factor method or onvalidation callback that returns
+                # None leaves session.auth_two_factor unset. str(None) is the
+                # fixed string "None", so without this guard a client could pass
+                # the literal "None" as the code and satisfy the check without
+                # ever holding a valid one. Require a stored code first.
+                stored_code = session.auth_two_factor
+                if stored_code not in (None, "") and form.vars[
+                    "authentication_code"
+                ] == str(stored_code):
                     # Handle the case when the two-factor form has been successfully validated
                     # and the user was previously stored (the current user should be None because
                     # in this case, the previous username/password login form should not be displayed.
